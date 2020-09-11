@@ -81,7 +81,7 @@ class AWSNuker
         resp = s3.delete_bucket({ bucket: bucket.name })
       rescue Aws::S3::Errors::BucketNotEmpty
         puts "FAILURE: Bucket '#{bucket.name}' is not empty. Setting a lifecycle policy to destroy all objects inside the bucket by tomorrow."
-        puts "Please run the script again tomorrow."
+        puts "\tPlease run the script again tomorrow."
         resp = s3.put_bucket_lifecycle_configuration({
           bucket: bucket.name, 
           lifecycle_configuration: {
@@ -106,6 +106,10 @@ class AWSNuker
             ], 
           },
         })
+      rescue Aws::S3::Errors::ServiceError => e
+        puts "ERROR: #{e}"
+        puts "\tAttempting to delete bucket '#{bucket.name}' errored."
+        puts "\tTry deleting it manually."
       else
         puts "SUCCESS: Bucket '#{bucket.name}' got deleted successfully."
       end
