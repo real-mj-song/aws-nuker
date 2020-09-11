@@ -12,6 +12,8 @@ class AWSNuker
 
   # Public methods
   def run
+    puts "#{"="*20}DRY RUN STARTED" if @options[:dry_run]
+
     case @options[:service]
     when "ec2"
       ec2_termination
