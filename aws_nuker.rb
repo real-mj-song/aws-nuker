@@ -12,9 +12,13 @@ class AWSNuker
 
   # Public methods
   def run
+    puts "#{"="*20}DRY RUN STARTED" if @options[:dry_run]
+
     case @options[:service]
     when "ec2"
       ec2_termination
+    when "s3"
+      s3_termination
     else
       raise ArgumentError.new("#{@options[:service]} is not a supported service.")
     end
@@ -39,15 +43,7 @@ class AWSNuker
     end
 
     # exit here if desired
-    if @options[:dry_run]
-      puts "#{"="*20}DRY RUN ENDED"
-      exit 0
-    end
-    puts "Are you sure that you want to terminate all instances above? (YES/NO)"
-    if gets.chomp.upcase != 'YES'
-      puts "Exiting..."
-      exit 0
-    end
+    early_exit('instance')
 
     # Turn off instance termination protection if enabled
     protected_instances = instances.filter do |instance|
@@ -65,6 +61,74 @@ class AWSNuker
       instance_ids: instances.map(&:instance_id)
     })
     puts "\nAll done!"
+  end
+
+  private def s3_termination
+    # show what will be deleted
+    s3 = Aws::S3::Client.new(profile: @options[:profile], region: @options[:region])
+    resp = s3.list_buckets
+    puts "* The following buckets will be deleted =>"
+    buckets = resp.buckets
+    buckets.each do |bucket|
+      puts "#{bucket.name}"
+    end
+
+    # exit here if desired
+    early_exit('bucket')
+
+    buckets.each do |bucket|
+      begin
+        resp = s3.delete_bucket({ bucket: bucket.name })
+      rescue Aws::S3::Errors::BucketNotEmpty
+        puts "FAILURE: Bucket '#{bucket.name}' is not empty. Setting a lifecycle policy to destroy all objects inside the bucket by tomorrow."
+        puts "\tPlease run the script again tomorrow."
+        resp = s3.put_bucket_lifecycle_configuration({
+          bucket: bucket.name, 
+          lifecycle_configuration: {
+            rules: [
+              {
+                expiration: {
+                  days: 1, 
+                },
+                prefix: nil,
+                filter: {
+                  prefix: "", 
+                },
+                id: "DeleteAll", 
+                status: "Enabled",
+                noncurrent_version_expiration: {
+                  noncurrent_days: 1,
+                },
+                abort_incomplete_multipart_upload: {
+                  days_after_initiation: 1,
+                },
+              }, 
+            ], 
+          },
+        })
+      rescue Aws::S3::Errors::ServiceError => e
+        puts "ERROR: #{e}"
+        puts "\tAttempting to delete bucket '#{bucket.name}' errored."
+        puts "\tTry deleting it manually."
+      else
+        puts "SUCCESS: Bucket '#{bucket.name}' got deleted successfully."
+      end
+    end
+  end
+
+  private def early_exit(service_obj)
+    puts
+    service_name = service_obj
+    # exit here if desired
+    if @options[:dry_run]
+      puts "#{"="*20}DRY RUN ENDED"
+      exit 0
+    end
+    puts "Are you sure that you want to terminate/delete all #{service_name}s above? (YES/NO)"
+    if gets.chomp.upcase != 'YES'
+      puts "Exiting..."
+      exit 0
+    end
   end
 
   private def verify_args
