@@ -1,4 +1,4 @@
-# AWS Nuker
+# AWS Nuker ☣️
 
 AWS Nuker is a command line tool to destroy all resources in a given Amazon Web Services service (e.g. EC2, S3, etc.).
 
