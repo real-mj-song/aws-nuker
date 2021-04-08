@@ -138,7 +138,7 @@ class AWSNuker
           snapshot_id: snapshot.snapshot_id,
         })
       end
-      p "."
+      print "."
     end
     puts "\nAll snapshots got deleted!"
   end
