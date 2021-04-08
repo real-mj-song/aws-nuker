@@ -4,7 +4,9 @@ require 'optparse'
 require 'aws-sdk-ec2'
 require 'aws-sdk-s3'
 
-class AWSNuker 
+class AWSNuker
+  BATCH_SIZE = 300
+
   def initialize
     parse
     verify_args
@@ -38,6 +40,7 @@ class AWSNuker
     })
     puts "* The following instances will be deleted =>"
     instances = resp.reservations.map(&:instances).flatten(1)
+
     instances.each do |instance|
       puts "#{instance.instance_id.ljust(20)} #{instance.instance_type.ljust(20)} #{instance.state.name}"
     end
@@ -45,21 +48,26 @@ class AWSNuker
     # exit here if desired
     early_exit('instance')
 
-    # Turn off instance termination protection if enabled
-    protected_instances = instances.filter do |instance|
-      ec2.describe_instance_attribute({attribute: "disableApiTermination", instance_id: instance.instance_id }).disable_api_termination
-    end
-    protected_instances.each do |instance|
-      ec2.modify_instance_attribute({
-        instance_id: instance.instance_id,
-        disable_api_termination: {
-          value: false,
-        }
+    if instances.count > 0
+      # Turn off instance termination protection if enabled
+      protected_instances = instances.filter do |instance|
+        ec2.describe_instance_attribute({attribute: "disableApiTermination", instance_id: instance.instance_id }).disable_api_termination
+      end
+      protected_instances.each do |instance|
+        ec2.modify_instance_attribute({
+          instance_id: instance.instance_id,
+          disable_api_termination: {
+            value: false,
+          }
+        })
+      end
+      ec2.terminate_instances({
+        instance_ids: instances.map(&:instance_id)
       })
     end
-    ec2.terminate_instances({
-      instance_ids: instances.map(&:instance_id)
-    })
+    puts "\nAll instances got terminated!"
+
+    destroy_ec2_snapshots(ec2)
     puts "\nAll done!"
   end
 
@@ -114,6 +122,25 @@ class AWSNuker
         puts "SUCCESS: Bucket '#{bucket.name}' got deleted successfully."
       end
     end
+  end
+
+  def destroy_ec2_snapshots(client)
+    resp = client.describe_snapshots({
+      owner_ids: ["self"],
+    })
+    puts "* The number of snapshots to be deleted =>"
+    puts resp.snapshots.count
+
+    puts "Deleting #{BATCH_SIZE} snapshots at a time."
+    resp.snapshots.lazy.each_slice(BATCH_SIZE) do |batch|
+      batch.each do |snapshot|
+        client.delete_snapshot({
+          snapshot_id: snapshot.snapshot_id,
+        })
+      end
+      print "."
+    end
+    puts "\nAll snapshots got deleted!"
   end
 
   private def early_exit(service_obj)
